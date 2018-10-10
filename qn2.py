@@ -1,4 +1,5 @@
 import math
+import time
 import tensorflow as tf
 import numpy as np
 import pylab as plt
@@ -9,8 +10,8 @@ NUM_CLASSES = 6
 NUM_HIDDEN = 10
 
 learning_rate = 0.01
-epochs = 2000
-batch_size = [4,8,16,32,64]
+epochs = 1000
+batch_size = 64
 num_neurons = 10
 seed = 10
 beta = 0.000001
@@ -66,18 +67,18 @@ def main():
     X = tf.placeholder(tf.float32, [None, NUM_FEATURES])
     Y = tf.placeholder(tf.float32, [None, NUM_CLASSES])
 
+    #Define weights and biases
     weights_1 = init_weights(NUM_FEATURES, NUM_HIDDEN)
     weights_2 = init_weights(NUM_HIDDEN,NUM_CLASSES)
     bias_1 = init_bias(NUM_HIDDEN)
     bias_2 = init_bias(NUM_CLASSES)
 
+    #Define loss and optimizer
     logits = forward_prop(X, weights_1, weights_2, bias_1, bias_2)
-    with tf.name_scope('cross_entropy'):
-      cross_entropy = tf.nn.softmax_cross_entropy_with_logits_v2(
-        labels=Y, logits=logits)
+    cross_entropy = tf.nn.softmax_cross_entropy_with_logits_v2(labels=Y, logits=logits)
     regularization = tf.nn.l2_loss(weights_1) + tf.nn.l2_loss(weights_2)
-    loss = tf.reduce_mean(cross_entropy+ beta*regularization)
 
+    loss = tf.reduce_mean(cross_entropy+ beta*regularization)
     optimizer = tf.train.GradientDescentOptimizer(learning_rate)
     global_step = tf.Variable(0, name='global_step', trainable=False)
     train_op = optimizer.minimize(loss, global_step=global_step)
@@ -85,40 +86,58 @@ def main():
     correct_prediction = tf.cast(tf.equal(tf.argmax(logits, 1), tf.argmax(Y, 1)), tf.float32)
     accuracy = tf.reduce_mean(correct_prediction)
 
+    error = tf.reduce_sum(tf.cast(tf.not_equal(tf.argmax(logits, axis=1), tf.argmax(Y, axis=1)), dtype=tf.int32))
+
     N = len(features)
     idx = np.arange(N)
 
+    #Train
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+
+        total_loss = []
+        total_error = []
         test_acc = []
+        time_per_epoch = []
+
         for i in range(epochs):
+            time_start = time.time()
+
             np.random.shuffle(idx)
             features = features[idx]
             targets = targets[idx]
 
-            for a in batch_size:
-                for start, end in zip(range(0, N, a), range(a, N, a)):
-                    train_op.run(feed_dict={X: features[start:end], Y: targets[start:end]})
+            loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=Y, logits=logits)+beta*regularization)
+            train_loss = []
+            train_error = []
 
-                test_acc.append(accuracy.eval(feed_dict={X: test_features, Y: test_targets}))
-                if i%100 == 0:
-                    print('iter %d: test accuracy %g'%(i, test_acc[i]))
-        # for i in range(epochs):
-        #     total_batch = len(features)/batch_size
-        #     #print(total_batch)
-        #     feature_batch = np.array_split(features, total_batch)
-        #     target_batch = np.array_split(targets, total_batch)
-        #
-        #     for j in range(total_batch):
-        #         batch_feat = feature_batch[j]
-        #         batch_tar = target_batch[j]
-        #         update.run(feed_dict={X: batch_feat, Y: batch_tar})
-        #         train_acc.append(accuracy.eval(feed_dict={X: batch_feat, Y: batch_tar}))
-        #         print('iter %d: accuracy %g'%(j, train_acc[j]))
+            for start, end in zip(range(0, N, batch_size), range(batch_size, N, batch_size)):
+                _, loss_val, error_val = sess.run([train_op, loss, error],feed_dict={X: features[start:end], Y: targets[start:end]})
+
+                train_loss.append(loss_val)
+                train_error.append(error_val)
+
+            total_loss.append(train_loss)
+            total_error.append(train_error)
+            test_acc.append(accuracy.eval(feed_dict={X: test_features, Y: test_targets}))
+
+            if i%100 == 0:
+                print('iter %d: test accuracy %g'%(i, test_acc[i]))
+            time_end = time.time()
+
+            time_taken = time_end-time_start
+            time_per_epoch.append(time_taken)
+
+    np.savetxt("Testing_Accuracy_BS64.csv", test_acc, delimiter=",")
+    np.savetxt("Training_Loss_BS64.csv", total_loss, delimiter=",")
+    np.savetxt("Time_Per_Epoch_BS64.csv", time_per_epoch, delimiter=",")
+    np.savetxt("Error_BS64.csv", total_error, delimiter=",")
+
     plt.figure(1)
     plt.plot(range(epochs), test_acc)
     plt.xlabel(str(epochs) + ' iterations')
     plt.ylabel('Test accuracy')
+    plt.savefig('Test_Accuracy_BS64.png')
     plt.show()
     sess.close()
 
